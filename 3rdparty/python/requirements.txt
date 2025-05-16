@@ -1,0 +1,7 @@
+black
+kubernetes
+pytest
+pytest-timeout
+testcontainers
+twine
+typing-extensions

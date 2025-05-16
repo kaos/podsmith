@@ -1,0 +1,59 @@
+[project]
+name = "podsmith"
+authors = [{name="Andreas Stenius", email="andreas.stenius@gmail.com"}]
+license = {file = "LICENSE"}
+readme = "README.md"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Utilities",
+]
+dynamic = ["description", "version"]
+requires-python = ">=3.10,<3.14"
+
+dependencies = [
+  "typing_extensions",
+]
+
+[project.urls]
+Repository = "https://github.com/kaos/podsmith"
+
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+color_output = true
+# known_first_party = ["abcd"]
+
+[tool.mypy]
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+follow_imports = "silent"
+module = [
+  # Remove modules from this list when they typecheck cleanly.
+  # "abcd.*",
+]
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = [
+  # "efgh",
+]
