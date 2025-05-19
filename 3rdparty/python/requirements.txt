@@ -2,6 +2,7 @@ black
 kubernetes
 pytest
 pytest-timeout
-testcontainers
+pyyaml
+testcontainers[k3s]
 twine
 typing-extensions
