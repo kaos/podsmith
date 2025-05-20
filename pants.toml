@@ -27,6 +27,10 @@ args = "-i 4"
 interpreter_constraints = [">=3.10,<3.14"]
 enable_resolves = true
 
+[python-infer]
+string_imports = true
+string_imports_min_dots = 1
+
 [python.resolves]
 python-default = "3rdparty/python/default.lock"
 
