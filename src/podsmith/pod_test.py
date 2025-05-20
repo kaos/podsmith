@@ -10,31 +10,10 @@ from testcontainers.mongodb import MongoDbContainer
 
 from .pod import Pod
 
-# from testcontainers.k3s import K3SContainer
-
 
 @pytest.fixture
 def podsmith_cluster(kind_cluster):
     """Cluster indirection to allow different implementations based on ENV vars etc."""
-
-
-# @pytest.fixture(scope="session")
-# def client():
-#     k3s_args = [
-#         "server",
-#         "--kubelet-arg=cgroup-driver=systemd@server:*"
-#     ]
-#     with K3SContainer().with_command(k3s_args) as k3s:
-#         kubernetes.config.load_kube_config_from_dict(yaml.safe_load(k3s.config_yaml()))
-#         yield kubernetes.client
-
-
-# def test_client(client):
-#     pods = client.CoreV1Api().list_pod_for_all_namespaces()
-#     assert len(pods.items) > 0
-#     # for pod in pods.items:
-#     #     m = pod.metadata
-#     #     print(f"{pod.kind} {m.namespace}::{m.name} {pod.status.message!r}")
 
 
 def test_kube_pod(podsmith_cluster):
@@ -51,11 +30,6 @@ def test_kube_pod(podsmith_cluster):
     )
     with Pod.from_pod(mongo) as res:
         assert res.refresh().pod.status.phase == "Running"
-        # from pprint import pprint
-
-        # pprint(res.refresh().pod.to_dict())
-
-    # assert False
 
 
 def test_kube_pod_from_testcontainer(podsmith_cluster):

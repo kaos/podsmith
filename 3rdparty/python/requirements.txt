@@ -3,7 +3,7 @@ kubernetes
 pytest
 pytest-timeout
 pyyaml
-testcontainers [mongodb, k3s]
+testcontainers [mongodb]
 twine
 typing-extensions
 urllib3

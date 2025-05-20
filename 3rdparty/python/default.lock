@@ -14,7 +14,7 @@
 //     "pytest",
 //     "pytest-timeout",
 //     "pyyaml",
-//     "testcontainers[k3s,mongodb]",
+//     "testcontainers[mongodb]",
 //     "twine",
 //     "typing-extensions",
 //     "urllib3"
@@ -2975,7 +2975,7 @@
     "pytest",
     "pytest-timeout",
     "pyyaml",
-    "testcontainers[k3s,mongodb]",
+    "testcontainers[mongodb]",
     "twine",
     "typing-extensions",
     "urllib3"
