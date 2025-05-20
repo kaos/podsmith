@@ -10,6 +10,19 @@ from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from urllib3.exceptions import MaxRetryError
 
+if kubeconfig := os.getenv("KUBECONFIG"):
+
+    @pytest.fixture
+    def podsmith_cluster():
+        """Use current cluster context as configured in kube config."""
+        config.load_kube_config(config_file=kubeconfig)
+
+else:
+
+    @pytest.fixture
+    def podsmith_cluster(kind_cluster):
+        """Use temporary cluster managed by kind."""
+
 
 @pytest.fixture(scope="session")
 def kind_cluster(tmp_path_factory):

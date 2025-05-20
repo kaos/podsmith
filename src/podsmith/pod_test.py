@@ -1,19 +1,11 @@
 # Copyright (c) 2025 Andreas Stenius
 # This software is licensed under the MIT License.
 # See the LICENSE file for details.
-import pytest
-from kubernetes import client
 
-# import yaml
 from kubernetes.client import V1Container, V1ObjectMeta, V1Pod, V1PodSpec
 from testcontainers.mongodb import MongoDbContainer
 
 from .pod import Pod
-
-
-@pytest.fixture
-def podsmith_cluster(kind_cluster):
-    """Cluster indirection to allow different implementations based on ENV vars etc."""
 
 
 def test_kube_pod(podsmith_cluster):
@@ -34,5 +26,5 @@ def test_kube_pod(podsmith_cluster):
 
 def test_kube_pod_from_testcontainer(podsmith_cluster):
     mongo = MongoDbContainer("mongo:7.0.12")
-    with Pod("mongo", namespace="test").with_testcontainer(mongo) as res:
+    with Pod("mongo2", namespace="test").with_testcontainer(mongo) as res:
         assert res.refresh().pod.status.phase == "Running"
