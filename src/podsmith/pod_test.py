@@ -5,9 +5,10 @@ import pytest
 from kubernetes import client
 
 # import yaml
-from kubernetes.client import V1Container, V1Namespace, V1ObjectMeta, V1Pod, V1PodSpec
+from kubernetes.client import V1Container, V1ObjectMeta, V1Pod, V1PodSpec
+from testcontainers.mongodb import MongoDbContainer
 
-from .pod import KubePod
+from .pod import Pod
 
 # from testcontainers.k3s import K3SContainer
 
@@ -48,10 +49,16 @@ def test_kube_pod(podsmith_cluster):
             ],
         ),
     )
-    with KubePod(mongo) as res:
-        assert res.get_pod().status.phase == "Running"
+    with Pod.from_pod(mongo) as res:
+        assert res.refresh().pod.status.phase == "Running"
         # from pprint import pprint
 
-        # pprint(res.get_pod().to_dict())
+        # pprint(res.refresh().pod.to_dict())
 
     # assert False
+
+
+def test_kube_pod_from_testcontainer(podsmith_cluster):
+    mongo = MongoDbContainer("mongo:7.0.12")
+    with Pod("mongo", namespace="test").with_testcontainer(mongo) as res:
+        assert res.refresh().pod.status.phase == "Running"

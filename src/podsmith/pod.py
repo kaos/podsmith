@@ -1,31 +1,125 @@
 # Copyright (c) 2025 Andreas Stenius
 # This software is licensed under the MIT License.
 # See the LICENSE file for details.
-import time
+from __future__ import annotations
 
-from kubernetes.client import ApiClient, CoreV1Api, V1Namespace, V1ObjectMeta, V1Pod
+import time
+from copy import deepcopy
+
+from kubernetes.client import (
+    ApiClient,
+    CoreV1Api,
+    V1Container,
+    V1ContainerPort,
+    V1EnvVar,
+    V1Namespace,
+    V1ObjectMeta,
+    V1Pod,
+    V1PodSpec,
+)
 from kubernetes.client.exceptions import ApiException
 from kubernetes.watch import Watch
+from testcontainers.core.container import DockerContainer
+from typing_extensions import Self
 
 
-class KubePod:
-    def __init__(self, pod: V1Pod, /, client: ApiClient | None = None) -> None:
+class Pod:
+    def __init__(
+        self,
+        name: str,
+        namespace: str | None = None,
+        *,
+        client: ApiClient | None = None,
+        **metadata,
+    ) -> None:
+        self._pod = None
+        self._name = name
+        self._namespace = namespace or "default"
+        self._metadata = metadata
         self.client = client
-        self.pod = pod
         self.created_pod = False
+        self.existing_pod = False
         self.wait_for_condition = "Ready"
         self.timeout = 60
 
-    @property
-    def namespace(self):
-        return self.pod.metadata.namespace or "default"
+    @classmethod
+    def from_pod(cls, pod: V1Pod, *, client: ApiClient | None = None) -> KubePod:
+        self = cls(pod.metadata.name, pod.metadata.namespace, client=client)
+        self.pod = pod
+        return self
 
     @property
-    def name(self):
-        return self.pod.metadata.name
+    def live(self) -> bool:
+        return self.created_pod or self.existing_pod
 
-    def get_pod(self):
-        return CoreV1Api(self.client).read_namespaced_pod(self.name, self.namespace)
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, value) -> None:
+        assert self._pod is None
+        self._name = value
+
+    @property
+    def namespace(self) -> str:
+        return self._namespace
+
+    @namespace.setter
+    def namespace(self, value) -> None:
+        assert self._pod is None
+        self._namespace = value
+
+    @property
+    def pod(self) -> V1Pod:
+        if self._pod is None:
+            self._pod = V1Pod(
+                metadata=V1ObjectMeta(
+                    namespace=self.namespace,
+                    name=self.name,
+                    **self._metadata,
+                ),
+                spec=V1PodSpec(containers=[]),
+            )
+        return self._pod
+
+    @pod.setter
+    def pod(self, value: V1Pod) -> None:
+        assert not self.live
+        self._pod = deepcopy(value)
+        self._pod.metadata.name = self._name
+        self._pod.metadata.namespace = self._namespace
+
+    def refresh(self) -> Self:
+        assert self.live
+        self._pod = CoreV1Api(self.client).read_namespaced_pod(self.name, self.namespace)
+        return self
+
+    def with_testcontainer(self, container: DockerContainer) -> Self:
+        def parse_port_mapping(c_port):
+            port, _, proto = (
+                c_port.partition("/") if isinstance(c_port, str) else (c_port, None, None)
+            )
+            return dict(container_port=int(port), protocol=proto or None)
+
+        c = V1Container(
+            args=container._command,
+            command=container._kwargs.get("entrypoint"),
+            env=[V1EnvVar(name=name, value=value) for name, value in container.env.items()],
+            image=container.image,
+            name=container._name or f"{self.name}-{len(self.pod.spec.containers)}",
+            ports=[
+                V1ContainerPort(host_port=h_port, **parse_port_mapping(c_port))
+                for c_port, h_port in container.ports.items()
+            ],
+            working_dir=container._kwargs.get("working_dir"),
+        )
+        return self.with_container(c)
+
+    def with_container(self, container: V1Container) -> Self:
+        assert not self.live
+        self.pod.spec.containers.append(container)
+        return self
 
     def __enter__(self):
         namespace = self.ensure_namespace()
