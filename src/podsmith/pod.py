@@ -54,21 +54,31 @@ class Pod:
 
     @property
     def name(self) -> str:
-        return self._name
+        if self._pod is None:
+            return self._name
+        else:
+            return self._pod.metadata.name
 
     @name.setter
     def name(self, value) -> None:
-        assert self._pod is None
+        assert not self.live
         self._name = value
+        if self._pod is not None:
+            self._pod.metadata.name = value
 
     @property
     def namespace(self) -> str:
-        return self._namespace
+        if self._pod is None:
+            return self._namespace
+        else:
+            return self._pod.metadata.namespace
 
     @namespace.setter
     def namespace(self, value) -> None:
-        assert self._pod is None
+        assert not self.live
         self._namespace = value
+        if self._pod is not None:
+            self._pod.metadata.namespace = value
 
     @property
     def pod(self) -> V1Pod:
@@ -95,26 +105,16 @@ class Pod:
         self._pod = CoreV1Api(self.client).read_namespaced_pod(self.name, self.namespace)
         return self
 
-    def with_testcontainer(self, container: DockerContainer) -> Self:
-        def parse_port_mapping(c_port):
-            port, _, proto = (
-                c_port.partition("/") if isinstance(c_port, str) else (c_port, None, None)
-            )
-            return dict(container_port=int(port), protocol=proto or None)
+    def with_testcontainers(self, *containers: DockerContainer) -> Self:
+        return self.with_containers(*map(self.convert_testcontainer, containers))
 
-        c = V1Container(
-            args=container._command,
-            command=container._kwargs.get("entrypoint"),
-            env=[V1EnvVar(name=name, value=value) for name, value in container.env.items()],
-            image=container.image,
-            name=container._name or f"{self.name}-{len(self.pod.spec.containers)}",
-            ports=[
-                V1ContainerPort(host_port=h_port, **parse_port_mapping(c_port))
-                for c_port, h_port in container.ports.items()
-            ],
-            working_dir=container._kwargs.get("working_dir"),
-        )
-        return self.with_container(c)
+    def with_testcontainer(self, container: DockerContainer) -> Self:
+        return self.with_container(self.convert_testcontainer(container))
+
+    def with_containers(self, *containers: V1Container) -> Self:
+        assert not self.live
+        self.pod.spec.containers.extend(containers)
+        return self
 
     def with_container(self, container: V1Container) -> Self:
         assert not self.live
@@ -199,3 +199,23 @@ class Pod:
             raise TimeoutError(f"Default service account not available in namespace '{namespace}'")
 
         return namespace
+
+    def convert_testcontainer(self, container: DockerContainer) -> V1Container:
+        def parse_port_mapping(c_port):
+            port, _, proto = (
+                c_port.partition("/") if isinstance(c_port, str) else (c_port, None, None)
+            )
+            return dict(container_port=int(port), protocol=proto or None)
+
+        return V1Container(
+            args=container._command,
+            command=container._kwargs.get("entrypoint"),
+            env=[V1EnvVar(name=name, value=value) for name, value in container.env.items()],
+            image=container.image,
+            name=container._name or f"{self.name}-{len(self.pod.spec.containers)}",
+            ports=[
+                V1ContainerPort(host_port=h_port, **parse_port_mapping(c_port))
+                for c_port, h_port in container.ports.items()
+            ],
+            working_dir=container._kwargs.get("working_dir"),
+        )
