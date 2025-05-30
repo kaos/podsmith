@@ -3,8 +3,7 @@
 # See the LICENSE file for details.
 from __future__ import annotations
 
-import time
-from copy import deepcopy
+from functools import partial
 
 from kubernetes.client import (
     ApiClient,
@@ -12,143 +11,107 @@ from kubernetes.client import (
     V1Container,
     V1ContainerPort,
     V1EnvVar,
-    V1Namespace,
-    V1ObjectMeta,
     V1Pod,
     V1PodSpec,
+    V1ServicePort,
 )
-from kubernetes.client.exceptions import ApiException
 from kubernetes.watch import Watch
 from testcontainers.core.container import DockerContainer
 from typing_extensions import Self
 
+from .image import ImageLoader
+from .manifest import Manifest
+from .service import APP_LABEL, Service
 
-class Pod:
-    def __init__(
-        self,
-        name: str,
-        namespace: str | None = None,
-        *,
-        client: ApiClient | None = None,
-        **metadata,
-    ) -> None:
-        self._pod = None
-        self._name = name
-        self._namespace = namespace or "default"
-        self._metadata = metadata
-        self.client = client
-        self.created_pod = False
-        self.existing_pod = False
+
+class Pod(Manifest[V1Pod]):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.wait_for_condition = "Ready"
         self.timeout = 60
+        self.services = {}
 
     @classmethod
-    def from_pod(cls, pod: V1Pod, *, client: ApiClient | None = None) -> KubePod:
+    def from_pod(cls, pod: V1Pod, *, client: ApiClient | None = None) -> Pod:
         self = cls(pod.metadata.name, pod.metadata.namespace, client=client)
-        self.pod = pod
+        self.manifest = pod
         return self
 
-    @property
-    def live(self) -> bool:
-        return self.created_pod or self.existing_pod
+    def _new_manifest(self) -> V1Pod:
+        self.metadata.labels.setdefault(APP_LABEL, self.name)
+        return V1Pod(
+            metadata=self.metadata,
+            spec=V1PodSpec(containers=[]),
+        )
 
-    @property
-    def name(self) -> str:
-        if self._pod is None:
-            return self._name
-        else:
-            return self._pod.metadata.name
+    def _get_manifest(self, api: CoreV1Api) -> V1Pod:
+        return api.read_namespaced_pod(self.name, self.namespace)
 
-    @name.setter
-    def name(self, value) -> None:
-        assert not self.live
-        self._name = value
-        if self._pod is not None:
-            self._pod.metadata.name = value
+    def _create(self, api: CoreV1Api) -> V1Pod:
+        return api.create_namespaced_pod(self.namespace, self.manifest)
 
-    @property
-    def namespace(self) -> str:
-        if self._pod is None:
-            return self._namespace
-        else:
-            return self._pod.metadata.namespace
+    def _delete(self, api: CoreV1Api) -> None:
+        api.delete_namespaced_pod(namespace=self.namespace, name=self.name)
 
-    @namespace.setter
-    def namespace(self, value) -> None:
-        assert not self.live
-        self._namespace = value
-        if self._pod is not None:
-            self._pod.metadata.namespace = value
-
-    @property
-    def pod(self) -> V1Pod:
-        if self._pod is None:
-            self._pod = V1Pod(
-                metadata=V1ObjectMeta(
-                    namespace=self.namespace,
-                    name=self.name,
-                    **self._metadata,
-                ),
-                spec=V1PodSpec(containers=[]),
-            )
-        return self._pod
-
-    @pod.setter
-    def pod(self, value: V1Pod) -> None:
-        assert not self.live
-        self._pod = deepcopy(value)
-        self._pod.metadata.name = self._name
-        self._pod.metadata.namespace = self._namespace
-
-    def refresh(self) -> Self:
-        assert self.live
-        self._pod = CoreV1Api(self.client).read_namespaced_pod(self.name, self.namespace)
-        return self
-
-    def with_testcontainers(self, *containers: DockerContainer) -> Self:
-        return self.with_containers(*map(self.convert_testcontainer, containers))
-
-    def with_testcontainer(self, container: DockerContainer) -> Self:
-        return self.with_container(self.convert_testcontainer(container))
-
-    def with_containers(self, *containers: V1Container) -> Self:
-        assert not self.live
-        self.pod.spec.containers.extend(containers)
-        return self
-
-    def with_container(self, container: V1Container) -> Self:
-        assert not self.live
-        self.pod.spec.containers.append(container)
-        return self
-
-    def __enter__(self):
-        namespace = self.ensure_namespace()
+    def create(self) -> Self:
+        super().create()
+        namespace = self.namespace
         api = CoreV1Api(self.client)
-        created_pod = api.create_namespaced_pod(namespace, self.pod)
-        self.created_pod = True
-
         w = Watch()
         stream = w.stream(
             api.list_namespaced_pod,
             namespace=namespace,
             field_selector=f"metadata.name={self.name}",
-            resource_version=created_pod.metadata.resource_version,
+            resource_version=self.manifest.metadata.resource_version,
             timeout_seconds=self.timeout,
         )
 
         if self.wait_until_condition(stream, self.wait_for_condition):
             w.stop()
+            for svc in self.services.values():
+                svc.create()
         else:
-            raise TimeoutError(
-                f"{namespace}/{self.name}: timeout waiting for pod to become {self.wait_for_condition}"
-            )
-        return self
+            try:
+                pod_status = self.refresh().manifest.status
+                pod_name = self.name
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self.created_pod:
-            api = CoreV1Api(self.client)
-            api.delete_namespaced_pod(namespace=self.namespace, name=self.name)
-            self.created_pod = False
+                # Collect conditions
+                cond_lines = []
+                for cond in sorted(
+                    pod_status.conditions or [],
+                    key=lambda c: c.last_transition_time or "",
+                ):
+                    cond_lines.append(
+                        f"- {cond.type} = {cond.status} @ {cond.last_transition_time} "
+                        f"(reason: {cond.reason}, message: {cond.message})"
+                    )
+
+                # Collect logs from all containers (if possible)
+                log_lines = []
+                for container in self.manifest.spec.containers:
+                    try:
+                        logs = self.get_logs(container.name, tail_lines=20)
+                        log_lines.append(f"--- Logs from container '{container.name}' ---\n{logs}")
+                    except Exception as e:
+                        log_lines.append(
+                            f"--- Logs from container '{container.name}' unavailable: {e} ---"
+                        )
+
+                raise TimeoutError(
+                    f"{namespace}/{pod_name}: timeout waiting for pod to become {self.wait_for_condition}\n"
+                    f"Pod phase: {pod_status.phase}\n"
+                    f"Conditions:\n" + "\n".join(cond_lines) + "\n\n" + "\n\n".join(log_lines)
+                )
+            finally:
+                self.destroy()
+                # no return
+
+        return self.refresh()
+
+    def destroy(self):
+        for svc in self.services.values():
+            svc.destroy()
+        super().destroy()
 
     def wait_until_condition(self, stream, type: str):
         condition_met = False
@@ -171,51 +134,112 @@ class Pod:
 
         return False
 
-    def ensure_namespace(self) -> str:
-        namespace = self.namespace
-        api = CoreV1Api(self.client)
+    def create_services(self, container: V1Container) -> Self:
+        for port in container.ports:
+            if not port.name:
+                continue
+            self.with_service(
+                dict(
+                    name=port.name,
+                    protocol=port.protocol,
+                    port=port.container_port,
+                    # target_port=port.container_port,
+                    # node_port=port.host_port,
+                ),
+                port_type=(
+                    Service.PortType.NodePort if port.host_port else Service.PortType.ClusterIP
+                ),
+            )
+        return self
 
-        # Ensure namespace exists
-        try:
-            api.read_namespace(namespace)
-        except ApiException as e:
-            if e.status == 404:
-                print(f"→ Creating namespace: {namespace}")
-                api.create_namespace(V1Namespace(metadata=V1ObjectMeta(name=namespace)))
-            else:
-                raise
+    def with_service(self, *ports: dict, **kwargs) -> Self:
+        svc = Service(pod=self, **kwargs)
+        svc = self.services.setdefault(svc.port_type, svc)
+        for port_spec in ports:
+            svc.add_port(**port_spec)
+        return self
 
-        # Wait for default service account
-        for _ in range(10):
-            try:
-                api.read_namespaced_service_account("default", namespace)
-                break
-            except ApiException as e:
-                if e.status == 404:
-                    time.sleep(1)
-                else:
-                    raise
-        else:
-            raise TimeoutError(f"Default service account not available in namespace '{namespace}'")
+    def with_containers(self, *containers: V1Container, service: bool = True) -> Self:
+        assert not self.live
+        self.manifest.spec.containers.extend(containers)
+        if service:
+            for container in containers:
+                self.create_services(container)
+        return self
 
-        return namespace
+    def with_container(self, container: V1Container, *, service: bool = True) -> Self:
+        assert not self.live
+        self.manifest.spec.containers.append(container)
+        if service:
+            self.create_services(container)
+        return self
 
-    def convert_testcontainer(self, container: DockerContainer) -> V1Container:
+    def with_testcontainers(
+        self, *containers: DockerContainer, service_ports_map: dict[int, str] | None = None
+    ) -> Self:
+        convert_testcontainer = partial(
+            self.convert_testcontainer, service_ports_map=service_ports_map or {}
+        )
+        return self.with_containers(
+            *map(convert_testcontainer, containers), service=bool(service_ports_map)
+        )
+
+    def with_testcontainer(
+        self, container: DockerContainer, *, service_ports_map: dict[int, str] | None = None
+    ) -> Self:
+        convert_testcontainer = partial(
+            self.convert_testcontainer, service_ports_map=service_ports_map or {}
+        )
+        return self.with_container(
+            convert_testcontainer(container), service=bool(service_ports_map)
+        )
+
+    def convert_testcontainer(
+        self, container: DockerContainer, service_ports_map: dict[int, str]
+    ) -> V1Container:
         def parse_port_mapping(c_port):
             port, _, proto = (
                 c_port.partition("/") if isinstance(c_port, str) else (c_port, None, None)
             )
-            return dict(container_port=int(port), protocol=proto or None)
+            port = int(port)
+            return dict(
+                name=service_ports_map.get(port),
+                container_port=port,
+                protocol=proto or None,
+            )
 
         return V1Container(
             args=container._command,
             command=container._kwargs.get("entrypoint"),
             env=[V1EnvVar(name=name, value=value) for name, value in container.env.items()],
             image=container.image,
-            name=container._name or f"{self.name}-{len(self.pod.spec.containers)}",
+            name=container._name or f"{self.name}-{len(self.manifest.spec.containers)}",
             ports=[
                 V1ContainerPort(host_port=h_port, **parse_port_mapping(c_port))
                 for c_port, h_port in container.ports.items()
             ],
             working_dir=container._kwargs.get("working_dir"),
         )
+
+    def get_logs(self, container: str | None = None, tail_lines: int | None = None) -> str:
+        api = CoreV1Api(self.client)
+        return api.read_namespaced_pod_log(
+            name=self.name,
+            namespace=self.namespace,
+            container=container,
+            tail_lines=tail_lines,
+        ).strip()
+
+    def preload_images(self, loader: ImageLoader | None) -> Self:
+        if loader is not None:
+            for container in self.manifest.spec.containers:
+                loader.load_image(container.image)
+        return self
+
+    def get_port(self, name: str) -> V1ServicePort:
+        svc = self.services.get(Service.PortType.NodePort)
+        ports = [] if svc is None else svc.manifest.spec.ports
+        for port in ports:
+            if port.name == name:
+                return port
+        raise ValueError(f"{self.namespace}/{self.name}: no service port found with name: {name}")

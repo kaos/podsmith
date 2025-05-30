@@ -1,0 +1,167 @@
+# Copyright (c) 2025 Andreas Stenius
+# This software is licensed under the MIT License.
+# See the LICENSE file for details.
+from __future__ import annotations
+
+import random
+import string
+import time
+from abc import ABC, abstractmethod
+from copy import deepcopy
+from typing import Generic, TypeVar
+
+from kubernetes.client import ApiClient, CoreV1Api, V1Namespace, V1ObjectMeta
+from kubernetes.client.exceptions import ApiException
+from typing_extensions import Self
+
+T = TypeVar("T")
+
+
+def random_text(length) -> str:
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+
+class Manifest(ABC, Generic[T]):
+    def __init__(
+        self,
+        name: str,
+        namespace: str | None = None,
+        *,
+        client: ApiClient | None = None,
+        **metadata,
+    ) -> None:
+        metadata.setdefault("annotations", {})
+        metadata.setdefault("labels", {})
+        self.client = client
+        self.created = False
+        self.existing = False
+        self.created_namespace = False
+        self._manifest = None
+        self._name = name
+        self._namespace = namespace or f"podsmith-test-{random_text(4)}"
+        self._metadata = metadata
+
+    @property
+    def live(self) -> bool:
+        return self.created or self.existing
+
+    @property
+    def name(self) -> str:
+        if self._manifest is None:
+            return self._name
+        else:
+            return self._manifest.metadata.name
+
+    @name.setter
+    def name(self, value) -> None:
+        assert not self.live
+        self._name = value
+        if self._manifest is not None:
+            self._manifest.metadata.name = value
+
+    @property
+    def namespace(self) -> str:
+        if self._manifest is None:
+            return self._namespace
+        else:
+            return self._manifest.metadata.namespace
+
+    @namespace.setter
+    def namespace(self, value) -> None:
+        assert not self.live
+        self._namespace = value
+        if self._manifest is not None:
+            self._manifest.metadata.namespace = value
+
+    @property
+    def metadata(self) -> V1ObjectMeta:
+        if self._manifest:
+            return self._manifest.metadata
+        else:
+            return V1ObjectMeta(
+                namespace=self.namespace,
+                name=self.name,
+                **self._metadata,
+            )
+
+    @property
+    def manifest(self) -> T:
+        if self._manifest is None:
+            self._manifest = self._new_manifest()
+        return self._manifest
+
+    @manifest.setter
+    def manifest(self, value: T) -> None:
+        assert not self.live
+        self._manifest = deepcopy(value)
+        self._manifest.metadata.name = self._name
+        self._manifest.metadata.namespace = self._namespace
+
+    def refresh(self) -> Self:
+        assert self.live
+        self._manifest = self._get_manifest(CoreV1Api(self.client))
+        return self
+
+    def create(self) -> Self:
+        api = CoreV1Api(self.client)
+        self.ensure_namespace(api)
+        self._manifest = self._create(api)
+        self.created = True
+        return self
+
+    def destroy(self):
+        if self.created:
+            print(f"deleting {self.namespace}/{self.name}...")
+            api = CoreV1Api(self.client)
+            self._delete(api)
+            self.created = False
+        if self.created_namespace:
+            print(f"deleting namespace {self.namespace}...")
+            CoreV1Api(self.client).delete_namespace(self.namespace)
+
+    def __enter__(self):
+        return self.create()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.destroy()
+
+    def ensure_namespace(self, api: CoreV1Api) -> str:
+        namespace = self.namespace
+
+        # Ensure namespace exists
+        try:
+            api.read_namespace(namespace)
+        except ApiException as e:
+            if e.status == 404:
+                print(f"→ Creating namespace: {namespace}")
+                api.create_namespace(V1Namespace(metadata=V1ObjectMeta(name=namespace)))
+                self.created_namespace = True
+            else:
+                raise
+
+        # Wait for default service account
+        for _ in range(10):
+            try:
+                api.read_namespaced_service_account("default", namespace)
+                break
+            except ApiException as e:
+                if e.status == 404:
+                    time.sleep(1)
+                else:
+                    raise
+        else:
+            raise TimeoutError(f"Default service account not available in namespace '{namespace}'")
+
+        return namespace
+
+    @abstractmethod
+    def _create(self, api: CoreV1Api) -> T: ...
+
+    @abstractmethod
+    def _delete(self, api: CoreV1Api) -> None: ...
+
+    @abstractmethod
+    def _new_manifest(self) -> T: ...
+
+    @abstractmethod
+    def _get_manifest(self, api: CoreV1Api) -> T: ...

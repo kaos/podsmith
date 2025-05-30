@@ -4,11 +4,52 @@
 import os
 import subprocess
 import time
+from dataclasses import dataclass
 
 import pytest
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from urllib3.exceptions import MaxRetryError
+
+from .image import ImageLoader, KindImageLoader
+
+
+@dataclass(frozen=True)
+class ClusterInfo:
+    context: str
+    cluster: str
+    kubeconfig: str
+    ephemeral: bool
+    image_loader: ImageLoader | None
+
+
+def get_current_cluster_info():
+    tpl = '{{index . "current-context"}}|{{index . "contexts" 0 "context" "cluster" }}'
+    result = subprocess.run(
+        ["kubectl", "config", "view", "--minify", "-o=go-template", f"--template={tpl}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    context, _, cluster = result.stdout.strip().partition("|")
+    return dict(context=context, cluster=cluster)
+
+
+def make_cluster_info(**info):
+    info.update(get_current_cluster_info())
+    match os.getenv("PODSMITH_PRELOAD_IMAGES"):
+        case "kind":
+            image_loader = KindImageLoader(info["cluster"])
+        case None:
+            image_loader = None
+        case value:
+            raise ValueError(f"PODSMITH_PRELOAD_IMAGES={value!r} is not supported.")
+    return ClusterInfo(
+        kubeconfig=os.getenv("KUBECONFIG"),
+        image_loader=image_loader,
+        **info,
+    )
+
 
 if kubeconfig := os.getenv("KUBECONFIG"):
 
@@ -16,12 +57,14 @@ if kubeconfig := os.getenv("KUBECONFIG"):
     def podsmith_cluster():
         """Use current cluster context as configured in kube config."""
         config.load_kube_config(config_file=kubeconfig)
+        yield make_cluster_info(ephemeral=False)
 
 else:
 
     @pytest.fixture
     def podsmith_cluster(kind_cluster):
         """Use temporary cluster managed by kind."""
+        return kind_cluster
 
 
 @pytest.fixture(scope="session")
@@ -51,10 +94,7 @@ def kind_cluster(tmp_path_factory):
     else:
         raise RuntimeError("Kubernetes cluster did not become ready in time")
 
-    yield {
-        "name": cluster_name,
-        "kubeconfig": str(kubeconfig_file),
-    }
+    yield make_cluster_info(ephemeral=True)
 
     # Teardown
     subprocess.run(["kind", "delete", "cluster", "--name", cluster_name], check=True)

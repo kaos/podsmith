@@ -20,11 +20,11 @@ def test_kube_pod(podsmith_cluster):
             ],
         ),
     )
-    with Pod.from_pod(mongo) as res:
-        assert res.refresh().pod.status.phase == "Running"
+    with Pod.from_pod(mongo) as pod:
+        assert pod.manifest.status.phase == "Running"
 
 
 def test_kube_pod_from_testcontainer(podsmith_cluster):
     mongo = MongoDbContainer("mongo:7.0.12")
-    with Pod("mongo2", namespace="test").with_testcontainer(mongo) as res:
-        assert res.refresh().pod.status.phase == "Running"
+    with Pod("mongo2", namespace="test").with_testcontainer(mongo) as pod:
+        assert pod.manifest.status.phase == "Running"

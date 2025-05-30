@@ -1,0 +1,57 @@
+from enum import Enum
+
+from kubernetes.client import ApiClient, CoreV1Api, V1Pod, V1Service, V1ServicePort, V1ServiceSpec
+from typing_extensions import Self
+
+from .manifest import Manifest
+
+APP_LABEL = "app.kubernetes.io/name"
+
+
+class Service(Manifest[V1Service]):
+    class PortType(str, Enum):
+        ExternalName = "ExternalName"
+        ClusterIP = "ClusterIP"
+        NodePort = "NodePort"
+        LoadBalancer = "LoadBalancer"
+
+    def __init__(
+        self,
+        pod: Manifest[V1Pod],
+        *,
+        client: ApiClient = None,
+        port_type: PortType = PortType.ClusterIP,
+        **metadata,
+    ):
+        super().__init__(
+            name=f"{pod.name}-service", namespace=pod.namespace, client=client, **metadata
+        )
+        if not isinstance(port_type, Service.PortType):
+            port_type = Service.PortType(port_type)
+        self.port_type = port_type
+        self.pod = pod
+
+    def _new_manifest(self) -> V1Service:
+        assert APP_LABEL in self.pod.manifest.metadata.labels
+        return V1Service(
+            metadata=self.metadata,
+            spec=V1ServiceSpec(
+                type=self.port_type.value,
+                selector={APP_LABEL: self.pod.manifest.metadata.labels[APP_LABEL]},
+                ports=[],
+            ),
+        )
+
+    def _get_manifest(self, api: CoreV1Api) -> V1Service:
+        return api.read_namespaced_service(self.name, self.namespace)
+
+    def _create(self, api: CoreV1Api) -> V1Service:
+        return api.create_namespaced_service(self.namespace, self.manifest)
+
+    def _delete(self, api: CoreV1Api) -> None:
+        api.delete_namespaced_service(self.name, self.namespace)
+
+    def add_port(self, port: int, **kwargs) -> Self:
+        assert not self.live
+        self.manifest.spec.ports.append(V1ServicePort(port=port, **kwargs))
+        return self

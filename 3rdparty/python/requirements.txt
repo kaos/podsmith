@@ -1,4 +1,5 @@
 black
+docker
 kubernetes
 pytest
 pytest-timeout
