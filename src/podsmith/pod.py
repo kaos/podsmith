@@ -44,14 +44,14 @@ class Pod(Manifest[V1Pod]):
             spec=V1PodSpec(containers=[]),
         )
 
-    def _get_manifest(self, api: CoreV1Api) -> V1Pod:
-        return api.read_namespaced_pod(self.name, self.namespace)
+    def _get_manifest(self) -> V1Pod:
+        return CoreV1Api(self.client).read_namespaced_pod(self.name, self.namespace)
 
-    def _create(self, api: CoreV1Api) -> V1Pod:
-        return api.create_namespaced_pod(self.namespace, self.manifest)
+    def _create(self) -> V1Pod:
+        return CoreV1Api(self.client).create_namespaced_pod(self.namespace, self.manifest)
 
-    def _delete(self, api: CoreV1Api) -> None:
-        api.delete_namespaced_pod(namespace=self.namespace, name=self.name)
+    def _delete(self) -> None:
+        CoreV1Api(self.client).delete_namespaced_pod(namespace=self.namespace, name=self.name)
 
     def create(self) -> Self:
         super().create()

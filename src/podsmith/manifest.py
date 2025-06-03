@@ -99,28 +99,31 @@ class Manifest(ABC, Generic[T]):
 
     def refresh(self) -> Self:
         assert self.live
-        self._manifest = self._get_manifest(CoreV1Api(self.client))
+        self._manifest = self._get_manifest()
         return self
 
     def create(self) -> Self:
         api = CoreV1Api(self.client)
         self.ensure_namespace(api)
-        self._manifest = self._create(api)
+        self._manifest = self._create()
         self.created = True
         return self
 
     def destroy(self):
         if self.created:
             print(f"deleting {self.namespace}/{self.name}...")
-            api = CoreV1Api(self.client)
-            self._delete(api)
+            self._delete()
             self.created = False
         if self.created_namespace:
             print(f"deleting namespace {self.namespace}...")
             CoreV1Api(self.client).delete_namespace(self.namespace)
 
     def __enter__(self):
-        return self.create()
+        try:
+            return self.create()
+        except:
+            self.destroy()
+            raise
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.destroy()
@@ -154,14 +157,24 @@ class Manifest(ABC, Generic[T]):
 
         return namespace
 
-    @abstractmethod
-    def _create(self, api: CoreV1Api) -> T: ...
+    def with_spec(self, **kwargs) -> Self:
+        assert not self.live
+        for attr, value in kwargs.items():
+            setattr(self.manifest.spec, attr, value)
+        return self
 
     @abstractmethod
-    def _delete(self, api: CoreV1Api) -> None: ...
+    def _create(self) -> T:
+        """Create the resource in the cluster."""
 
     @abstractmethod
-    def _new_manifest(self) -> T: ...
+    def _delete(self) -> None:
+        """Delete the resources from the cluster."""
 
     @abstractmethod
-    def _get_manifest(self, api: CoreV1Api) -> T: ...
+    def _new_manifest(self) -> T:
+        """Create object instance. This is a in-memory object only."""
+
+    @abstractmethod
+    def _get_manifest(self) -> T:
+        """Read the resource from the cluster."""

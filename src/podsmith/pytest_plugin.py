@@ -11,7 +11,7 @@ from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from urllib3.exceptions import MaxRetryError
 
-from .image import ImageLoader, KindImageLoader
+from .image import ImageLoader
 
 
 @dataclass(frozen=True)
@@ -37,16 +37,9 @@ def get_current_cluster_info():
 
 def make_cluster_info(**info):
     info.update(get_current_cluster_info())
-    match os.getenv("PODSMITH_PRELOAD_IMAGES"):
-        case "kind":
-            image_loader = KindImageLoader(info["cluster"])
-        case None:
-            image_loader = None
-        case value:
-            raise ValueError(f"PODSMITH_PRELOAD_IMAGES={value!r} is not supported.")
     return ClusterInfo(
         kubeconfig=os.getenv("KUBECONFIG"),
-        image_loader=image_loader,
+        image_loader=ImageLoader.create(info["cluster"]),
         **info,
     )
 
