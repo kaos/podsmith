@@ -5,6 +5,7 @@
 
 __version__ = "1.0.0"
 
+from .config_map import ConfigMap
 from .manifest import random_text
 from .pod import Pod
 from .role import ClusterRole, Role
@@ -15,6 +16,7 @@ from .service_account import ServiceAccount
 __all__ = [
     "ClusterRole",
     "ClusterRoleBinding",
+    "ConfigMap",
     "Pod",
     "Role",
     "RoleBinding",

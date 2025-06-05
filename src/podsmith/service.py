@@ -19,12 +19,13 @@ class Service(Manifest[V1Service]):
         self,
         pod: Manifest[V1Pod],
         *,
+        name: str | None = None,
         client: ApiClient = None,
         port_type: PortType = PortType.ClusterIP,
         **metadata,
     ):
         super().__init__(
-            name=f"{pod.name}-service", namespace=pod.namespace, client=client, **metadata
+            name=name or f"{pod.name}-service", namespace=pod.namespace, client=client, **metadata
         )
         if not isinstance(port_type, Service.PortType):
             port_type = Service.PortType(port_type)

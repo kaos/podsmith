@@ -105,13 +105,16 @@ class Manifest(ABC, Generic[T]):
     def create(self) -> Self:
         api = CoreV1Api(self.client)
         self.ensure_namespace(api)
+        print(
+            f"creating {self.manifest.kind or type(self.manifest).__name__} {self.namespace}/{self.name}..."
+        )
         self._manifest = self._create()
         self.created = True
         return self
 
     def destroy(self):
         if self.created:
-            print(f"deleting {self.namespace}/{self.name}...")
+            print(f"deleting {self.manifest.kind} {self.namespace}/{self.name}...")
             self._delete()
             self.created = False
         if self.created_namespace:

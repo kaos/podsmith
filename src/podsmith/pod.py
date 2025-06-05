@@ -224,6 +224,7 @@ class Pod(Manifest[V1Pod]):
                     # target_port=port.container_port,
                     # node_port=port.host_port,
                 ),
+                name=port.name,
                 port_type=(
                     Service.PortType.NodePort if port.host_port else Service.PortType.ClusterIP
                 ),
@@ -232,7 +233,7 @@ class Pod(Manifest[V1Pod]):
 
     def with_service(self, *ports: dict, **kwargs) -> Self:
         svc = Service(pod=self, **kwargs)
-        svc = self.services.setdefault(svc.port_type, svc)
+        svc = self.services.setdefault(svc.name, svc)
         for port_spec in ports:
             svc.add_port(**port_spec)
         return self
@@ -315,7 +316,7 @@ class Pod(Manifest[V1Pod]):
         return self
 
     def get_port(self, name: str) -> V1ServicePort:
-        svc = self.services.get(Service.PortType.NodePort)
+        svc = self.services.get(name)
         ports = [] if svc is None else svc.manifest.spec.ports
         for port in ports:
             if port.name == name:
