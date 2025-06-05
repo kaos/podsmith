@@ -1,7 +1,13 @@
-from kubernetes.client import RbacAuthorizationV1Api, RbacV1Subject, V1RoleBinding, V1RoleRef
+from kubernetes.client import (
+    RbacAuthorizationV1Api,
+    RbacV1Subject,
+    V1ClusterRoleBinding,
+    V1RoleBinding,
+    V1RoleRef,
+)
 from typing_extensions import Self
 
-from .manifest import Manifest
+from .manifest import ClusterManifest, Manifest
 from .role import Role
 from .service_account import ServiceAccount
 
@@ -10,7 +16,7 @@ User = None
 Group = None
 
 
-class RoleBinding(Manifest[V1RoleBinding]):
+class RoleBindingBase:
     def __init__(self, *args, role: Role, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.role = role
@@ -27,6 +33,30 @@ class RoleBinding(Manifest[V1RoleBinding]):
         )
         return self
 
+
+class ClusterRoleBinding(RoleBindingBase, ClusterManifest[V1ClusterRoleBinding]):
+    def _create(self) -> V1ClusterRoleBinding:
+        return RbacAuthorizationV1Api(self.client).create_cluster_role_binding(self.manifest)
+
+    def _delete(self) -> None:
+        RbacAuthorizationV1Api(self.client).delete_cluster_role_binding(self.name)
+
+    def _new_manifest(self) -> V1ClusterRoleBinding:
+        return V1ClusterRoleBinding(
+            metadata=self.metadata,
+            role_ref=V1RoleRef(
+                api_group="rbac.authorization.k8s.io",
+                kind="ClusterRole",
+                name=self.role.name,
+            ),
+            subjects=self.subjects,
+        )
+
+    def _get_manifest(self) -> V1ClusterRoleBinding:
+        return RbacAuthorizationV1Api(self.client).read_cluster_role_binding(self.name)
+
+
+class RoleBinding(RoleBindingBase, Manifest[V1RoleBinding]):
     def _create(self) -> V1RoleBinding:
         return RbacAuthorizationV1Api(self.client).create_namespaced_role_binding(
             self.namespace, self.manifest

@@ -1,10 +1,10 @@
-from kubernetes.client import RbacAuthorizationV1Api, V1PolicyRule, V1Role
+from kubernetes.client import RbacAuthorizationV1Api, V1ClusterRole, V1PolicyRule, V1Role
 from typing_extensions import Self
 
-from .manifest import Manifest
+from .manifest import ClusterManifest, Manifest
 
 
-class Role(Manifest[V1Role]):
+class RoleBase:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.rules = []
@@ -14,6 +14,22 @@ class Role(Manifest[V1Role]):
         self.rules.append(V1PolicyRule(**policy))
         return self
 
+
+class ClusterRole(RoleBase, ClusterManifest[V1ClusterRole]):
+    def _create(self) -> V1ClusterRole:
+        return RbacAuthorizationV1Api(self.client).create_cluster_role(self.manifest)
+
+    def _delete(self) -> None:
+        RbacAuthorizationV1Api(self.client).delete_cluster_role(self.name)
+
+    def _new_manifest(self) -> V1ClusterRole:
+        return V1ClusterRole(metadata=self.metadata, rules=self.rules)
+
+    def _get_manifest(self) -> V1ClusterRole:
+        return RbacAuthorizationV1Api(self.client).read_cluster_role(self.name)
+
+
+class Role(RoleBase, Manifest[V1Role]):
     def _create(self) -> V1Role:
         return RbacAuthorizationV1Api(self.client).create_namespaced_role(
             self.namespace, self.manifest

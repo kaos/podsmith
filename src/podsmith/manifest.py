@@ -128,8 +128,10 @@ class Manifest(ABC, Generic[T]):
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.destroy()
 
-    def ensure_namespace(self, api: CoreV1Api) -> str:
+    def ensure_namespace(self, api: CoreV1Api) -> None:
         namespace = self.namespace
+        if not namespace:
+            return
 
         # Ensure namespace exists
         try:
@@ -155,8 +157,6 @@ class Manifest(ABC, Generic[T]):
         else:
             raise TimeoutError(f"Default service account not available in namespace '{namespace}'")
 
-        return namespace
-
     def with_spec(self, **kwargs) -> Self:
         assert not self.live
         for attr, value in kwargs.items():
@@ -178,3 +178,14 @@ class Manifest(ABC, Generic[T]):
     @abstractmethod
     def _get_manifest(self) -> T:
         """Read the resource from the cluster."""
+
+
+class ClusterManifest(Manifest[T]):
+    def __init__(self, name: str, namespace: str | None = None, **kwargs) -> None:
+        assert not namespace
+        super().__init__(name, **kwargs)
+        self._namespace = None
+
+    @property
+    def namespace(self) -> None:
+        return None

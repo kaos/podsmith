@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import partial
 
 from kubernetes.client import (
@@ -21,21 +22,80 @@ from typing_extensions import Self
 
 from .image import ImageLoader
 from .manifest import Manifest
+from .role import ClusterRole, Role, RoleBase
+from .role_binding import ClusterRoleBinding, RoleBinding, RoleBindingBase
 from .service import APP_LABEL, Service
+from .service_account import ServiceAccount
 
 
 class Pod(Manifest[V1Pod]):
+    @dataclass
+    class Rbac:
+        role: RoleBase
+        binding: RoleBindingBase
+
+        @classmethod
+        def new(cls, pod: Pod) -> Pod.Rbac:
+            role = Role(f"{pod.name}-role", pod.namespace)
+            return cls(
+                role,
+                RoleBinding(f"{pod.name}-role-binding", pod.namespace, role=role).with_subject(
+                    pod.service_account
+                ),
+            )
+
+        @classmethod
+        def cluster_new(cls, pod: Pod) -> Pod.Rbac:
+            role = ClusterRole(f"{pod.namespace}-{pod.name}-cluster-role")
+            return cls(
+                role,
+                ClusterRoleBinding(
+                    f"{pod.namespace}-{pod.name}-cluster-role-binding", role=role
+                ).with_subject(pod.service_account),
+            )
+
+        def create(self) -> None:
+            self.role.create()
+            self.binding.create()
+
+        def destroy(self) -> None:
+            self.binding.destroy()
+            self.role.destroy()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.wait_for_condition = "Ready"
         self.timeout = 60
         self.services = {}
+        self._service_account = None
+        self._rbac = None
+        self._cluster_rbac = None
 
     @classmethod
     def from_pod(cls, pod: V1Pod, *, client: ApiClient | None = None) -> Pod:
         self = cls(pod.metadata.name, pod.metadata.namespace, client=client)
         self.manifest = pod
         return self
+
+    @property
+    def service_account(self) -> ServiceAccount | None:
+        if self._service_account is None and self.manifest.spec.service_account_name is None:
+            assert not self.live
+            self._service_account = ServiceAccount(f"{self.name}-account", self.namespace)
+            self.manifest.spec.service_account_name = self._service_account.name
+        return self._service_account
+
+    @property
+    def rbac(self) -> Pod.Rbac:
+        if self._rbac is None:
+            self._rbac = Pod.Rbac.new(self)
+        return self._rbac
+
+    @property
+    def cluster_rbac(self) -> Pod.Rbac:
+        if self._cluster_rbac is None:
+            self._cluster_rbac = Pod.Rbac.cluster_new(self)
+        return self._cluster_rbac
 
     def _new_manifest(self) -> V1Pod:
         self.metadata.labels.setdefault(APP_LABEL, self.name)
@@ -54,6 +114,7 @@ class Pod(Manifest[V1Pod]):
         CoreV1Api(self.client).delete_namespaced_pod(namespace=self.namespace, name=self.name)
 
     def create(self) -> Self:
+        self.create_auth()
         super().create()
         namespace = self.namespace
         api = CoreV1Api(self.client)
@@ -112,6 +173,23 @@ class Pod(Manifest[V1Pod]):
         for svc in self.services.values():
             svc.destroy()
         super().destroy()
+        self.destroy_auth()
+
+    def create_auth(self) -> None:
+        if self._service_account is not None:
+            self.service_account.create()
+        if self._rbac is not None:
+            self.rbac.create()
+        if self._cluster_rbac is not None:
+            self.cluster_rbac.create()
+
+    def destroy_auth(self) -> None:
+        if self._rbac is not None:
+            self.rbac.destroy()
+        if self._cluster_rbac is not None:
+            self.cluster_rbac.destroy()
+        if self._service_account is not None:
+            self.service_account.destroy()
 
     def wait_until_condition(self, stream, type: str):
         condition_met = False
@@ -243,3 +321,11 @@ class Pod(Manifest[V1Pod]):
             if port.name == name:
                 return port
         raise ValueError(f"{self.namespace}/{self.name}: no service port found with name: {name}")
+
+    def with_auth_rule(self, **policy) -> Self:
+        self.rbac.role.with_rule(**policy)
+        return self
+
+    def with_auth_cluster_rule(self, **policy) -> Self:
+        self.cluster_rbac.role.with_rule(**policy)
+        return self

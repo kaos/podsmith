@@ -7,12 +7,14 @@ __version__ = "1.0.0"
 
 from .manifest import random_text
 from .pod import Pod
-from .role import Role
-from .role_binding import RoleBinding
+from .role import ClusterRole, Role
+from .role_binding import ClusterRoleBinding, RoleBinding
 from .service import Service
 from .service_account import ServiceAccount
 
 __all__ = [
+    "ClusterRole",
+    "ClusterRoleBinding",
     "Pod",
     "Role",
     "RoleBinding",
