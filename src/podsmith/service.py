@@ -33,12 +33,12 @@ class Service(Manifest[V1Service]):
         self.pod = pod
 
     def _new_manifest(self) -> V1Service:
-        assert APP_LABEL in self.pod.manifest.metadata.labels
+        assert APP_LABEL in self.pod.metadata.labels
         return V1Service(
             metadata=self.metadata,
             spec=V1ServiceSpec(
                 type=self.port_type.value,
-                selector={APP_LABEL: self.pod.manifest.metadata.labels[APP_LABEL]},
+                selector={APP_LABEL: self.pod.metadata.labels[APP_LABEL]},
                 ports=[],
             ),
         )

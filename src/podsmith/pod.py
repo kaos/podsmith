@@ -3,15 +3,20 @@
 # See the LICENSE file for details.
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import partial
 
+import backoff
 from kubernetes.client import (
     ApiClient,
     CoreV1Api,
     V1Container,
     V1ContainerPort,
     V1EnvVar,
+    V1ExecAction,
+    V1Lifecycle,
+    V1LifecycleHandler,
     V1Pod,
     V1PodSpec,
     V1ServicePort,
@@ -309,6 +314,31 @@ class Pod(Manifest[V1Pod]):
             tail_lines=tail_lines,
         ).strip()
 
+    def missing_logs(self, opts):
+        pattern = opts["args"][0]
+        print(f"{self.namespace}/{self.name}: missing log pattern {pattern.pattern!r}")
+
+    def await_logs(
+        self,
+        log_pattern: str,
+        container: str | None = None,
+        max_time=30,
+        max_value=5,
+        **backoff_opts,
+    ):
+        @backoff.on_predicate(
+            backoff.fibo,
+            on_giveup=self.missing_logs,
+            max_time=max_time,
+            max_value=max_value,
+            **backoff_opts,
+        )
+        def check_logs(pattern):
+            print(f"{self.namespace}/{self.name}: awaiting log pattern {pattern.pattern!r}")
+            return pattern.search(self.get_logs(container), re.MULTILINE)
+
+        return check_logs(re.compile(log_pattern))
+
     def preload_images(self, loader: ImageLoader | None) -> Self:
         if loader is not None:
             for container in self.manifest.spec.containers:
@@ -329,4 +359,20 @@ class Pod(Manifest[V1Pod]):
 
     def with_auth_cluster_rule(self, **policy) -> Self:
         self.cluster_rbac.role.with_rule(**policy)
+        return self
+
+    def with_post_start_command(self, container_name: str, *command: str) -> Self:
+        for container in self.manifest.spec.containers:
+            if container.name != container_name:
+                continue
+            if container.lifecycle is None:
+                container.lifecycle = V1Lifecycle()
+            action = V1ExecAction(command=command)
+            handler = V1LifecycleHandler(_exec=action)
+            container.lifecycle.post_start = handler
+            break
+        else:
+            raise ValueError(
+                f"{container_name}: no such container found in pod {self.namespace}/{self.name}"
+            )
         return self
