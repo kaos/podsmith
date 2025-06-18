@@ -14,11 +14,26 @@ from kubernetes.client import ApiClient, CoreV1Api, V1Namespace, V1ObjectMeta
 from kubernetes.client.exceptions import ApiException
 from typing_extensions import Self
 
-T = TypeVar("T")
-
 
 def random_text(length) -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+
+def get_default_namespace(create_new_with_prefix: str | None = None, suffix_len: int = 4) -> str:
+    global DEFAULT_NAMESPACE
+    if not (create_new_with_prefix or DEFAULT_NAMESPACE):
+        create_new_with_prefix = "podsmith-test"
+    if create_new_with_prefix:
+        set_default_namespace(f"{create_new_with_prefix}-{random_text(suffix_len)}")
+    return DEFAULT_NAMESPACE
+
+
+def set_default_namespace(namespace: str) -> None:
+    global DEFAULT_NAMESPACE
+    DEFAULT_NAMESPACE = namespace
+
+
+T = TypeVar("T")
 
 
 class Manifest(ABC, Generic[T]):
@@ -38,7 +53,7 @@ class Manifest(ABC, Generic[T]):
         self.created_namespace = False
         self._manifest = None
         self._name = name
-        self._namespace = namespace or f"podsmith-test-{random_text(4)}"
+        self._namespace = namespace or get_default_namespace()
         self._metadata = metadata
 
     @property

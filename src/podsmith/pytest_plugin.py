@@ -12,6 +12,7 @@ from kubernetes.client.exceptions import ApiException
 from urllib3.exceptions import MaxRetryError
 
 from .image import ImageLoader
+from .manifest import get_default_namespace
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def make_cluster_info(**info):
 
 if kubeconfig := os.getenv("KUBECONFIG"):
 
-    @pytest.fixture
+    @pytest.fixture(scope="session")
     def podsmith_cluster():
         """Use current cluster context as configured in kube config."""
         config.load_kube_config(config_file=kubeconfig)
@@ -54,7 +55,7 @@ if kubeconfig := os.getenv("KUBECONFIG"):
 
 else:
 
-    @pytest.fixture
+    @pytest.fixture(scope="session")
     def podsmith_cluster(kind_cluster):
         """Use temporary cluster managed by kind."""
         return kind_cluster
@@ -91,3 +92,8 @@ def kind_cluster(tmp_path_factory):
 
     # Teardown
     subprocess.run(["kind", "delete", "cluster", "--name", cluster_name], check=True)
+
+
+@pytest.fixture
+def podsmith_namespace():
+    return get_default_namespace("podsmith-test")

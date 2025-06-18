@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 
@@ -376,3 +378,14 @@ class Pod(Manifest[V1Pod]):
                 f"{container_name}: no such container found in pod {self.namespace}/{self.name}"
             )
         return self
+
+    @contextmanager
+    def port_forward(self, service_name: str) -> int:
+        port = self.get_port(service_name).port
+        proc = subprocess.Popen(
+            ["kubectl", "port-forward", "-n", self.namespace, f"service/{service_name}", str(port)]
+        )
+        try:
+            yield port
+        finally:
+            proc.terminate()
