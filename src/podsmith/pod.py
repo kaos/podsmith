@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -386,6 +387,23 @@ class Pod(Manifest[V1Pod]):
             ["kubectl", "port-forward", "-n", self.namespace, f"service/{service_name}", str(port)]
         )
         try:
+            self.await_serverport(port)
             yield port
         finally:
             proc.terminate()
+
+    @staticmethod
+    @backoff.on_predicate(backoff.fibo, max_time=10)
+    def await_serverport(port: int, host: str = "127.0.0.1") -> bool:
+        addr_info_list = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        for family, socktype, proto, _canonname, sockaddr in addr_info_list:
+            try:
+                with socket.socket(family, socktype, proto) as sock:
+                    sock.settimeout(1)
+                    if sock.connect_ex(sockaddr) == 0:
+                        print(f"\nPort available for clients: {port}\n\n")
+                        return True
+            except Exception:
+                continue
+        print(f"Port NOT available yet: {port}")
+        return False
