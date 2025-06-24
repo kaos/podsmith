@@ -22,9 +22,19 @@ class ConfigMap(Manifest[V1ConfigMap]):
         self.manifest.data = data
         return self
 
+    def with_data_values(self, **values) -> Self:
+        assert not self.live
+        self.manifest.data.update(values)
+        return self
+
     def with_binary_data(self, binary_data: dict[str, str]) -> Self:
         assert not self.live
         self.manifest.binary_data = binary_data
+        return self
+
+    def with_binary_data_values(self, **values) -> Self:
+        assert not self.live
+        self.manifest.binary_data.update(values)
         return self
 
     def with_immutable(self, immutable: bool = True) -> Self:

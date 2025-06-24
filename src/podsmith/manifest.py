@@ -33,6 +33,7 @@ def set_default_namespace(namespace: str) -> None:
     DEFAULT_NAMESPACE = namespace
 
 
+DEFAULT_NAMESPACE = "podsmith-test"
 T = TypeVar("T")
 
 
