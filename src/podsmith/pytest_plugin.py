@@ -13,6 +13,14 @@ from urllib3.exceptions import MaxRetryError
 
 from .image import ImageLoader
 from .manifest import get_default_namespace
+from .session import Session
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "podsmith_scope(scope): Session scope for podsmith session. (Scope value used as pytest fixture scope.)",
+    )
 
 
 @dataclass(frozen=True)
@@ -97,3 +105,61 @@ def kind_cluster(tmp_path_factory):
 @pytest.fixture
 def podsmith_namespace():
     return get_default_namespace("podsmith-test")
+
+
+@pytest.fixture
+def podsmith_session_scope(request, podsmith_sessions):
+    scope = getattr(request.module, "podsmith_scope", "function")
+    if (marker := request.node.get_closest_marker("podsmith_scope")) is not None:
+        scope = marker.args[0]
+    if not scope:
+        raise Exception(
+            'missing `podsmith_scope` marker or module level variable. hint: add something like `@pytest.mark.podsmith_scope("module")` to your test.'
+        )
+    if scope not in podsmith_sessions:
+        raise ValueError(
+            f"Invalid podsmith_scope: {scope!r}. Must be one of: {', '.join(podsmith_sessions)}"
+        )
+    return scope
+
+
+@pytest.fixture
+def podsmith_session(podsmith_session_scope, podsmith_sessions):
+    return podsmith_sessions[podsmith_session_scope]
+
+
+@pytest.fixture
+def podsmith_sessions(
+    podsmith_global_session,
+    podsmith_pkg_session,
+    podsmith_mod_session,
+    podsmith_cls_session,
+    podsmith_fun_session,
+):
+    return {
+        "function": podsmith_fun_session,
+        "class": podsmith_cls_session,
+        "module": podsmith_mod_session,
+        "package": podsmith_pkg_session,
+        "session": podsmith_global_session,
+    }
+
+
+def _podsmith_session_fixture_factory(name, scope):
+    @pytest.fixture(name=name, scope=scope)
+    def _podsmith_session_fixture():
+        with Session() as session:
+            yield session
+
+    return _podsmith_session_fixture
+
+
+for key, scope in {
+    "global": "session",
+    "pkg": "package",
+    "mod": "module",
+    "cls": "class",
+    "fun": "function",
+}.items():
+    name = f"podsmith_{key}_session"
+    globals()[name] = _podsmith_session_fixture_factory(name, scope)

@@ -3,7 +3,7 @@
 # See the LICENSE file for details.
 """**Podsmith** is a Python toolkit for managing Kubernetes-based test dependencies, enabling dynamic or pre-provisioned environments for integration testing."""
 
-__version__ = "0.2"
+__version__ = "0.3"
 
 from .config_map import ConfigMap
 from .manifest import random_text
@@ -12,6 +12,7 @@ from .role import ClusterRole, Role
 from .role_binding import ClusterRoleBinding, RoleBinding
 from .service import Service
 from .service_account import ServiceAccount
+from .session import Session
 
 __all__ = [
     "ClusterRole",
@@ -22,5 +23,6 @@ __all__ = [
     "RoleBinding",
     "Service",
     "ServiceAccount",
+    "Session",
     "random_text",
 ]

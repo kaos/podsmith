@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Andreas Stenius
+# This software is licensed under the MIT License.
+# See the LICENSE file for details.
 from __future__ import annotations
 
 import os

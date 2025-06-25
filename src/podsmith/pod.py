@@ -204,7 +204,7 @@ class Pod(Manifest[V1Pod]):
         for event in stream:
             pod = event["object"]
             phase = pod.status.phase
-            print(f"→ [{self.namespace}/{self.name}] Pod phase: {phase}")
+            print(f"→ [{self}] Pod phase: {phase}")
             conditions = pod.status.conditions or []
             sorted_conditions = sorted(
                 (c for c in conditions if c.status == "True"),
@@ -319,7 +319,7 @@ class Pod(Manifest[V1Pod]):
 
     def missing_logs(self, opts):
         pattern = opts["args"][0]
-        print(f"{self.namespace}/{self.name}: missing log pattern {pattern.pattern!r}")
+        print(f"{self}: missing log pattern {pattern.pattern!r}")
 
     def await_logs(
         self,
@@ -337,7 +337,7 @@ class Pod(Manifest[V1Pod]):
             **backoff_opts,
         )
         def check_logs(pattern):
-            print(f"{self.namespace}/{self.name}: awaiting log pattern {pattern.pattern!r}")
+            print(f"{self}: awaiting log pattern {pattern.pattern!r}")
             return pattern.search(self.get_logs(container), re.MULTILINE)
 
         return check_logs(re.compile(log_pattern))
@@ -401,9 +401,7 @@ class Pod(Manifest[V1Pod]):
                 with socket.socket(family, socktype, proto) as sock:
                     sock.settimeout(1)
                     if sock.connect_ex(sockaddr) == 0:
-                        print(f"\nPort available for clients: {port}\n\n")
                         return True
             except Exception:
                 continue
-        print(f"Port NOT available yet: {port}")
         return False

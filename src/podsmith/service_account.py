@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Andreas Stenius
+# This software is licensed under the MIT License.
+# See the LICENSE file for details.
 from kubernetes.client import CoreV1Api, V1ServiceAccount
 
 from .manifest import Manifest

@@ -57,6 +57,12 @@ class Manifest(ABC, Generic[T]):
         self._namespace = namespace or get_default_namespace()
         self._metadata = metadata
 
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self.namespace}/{self.name}>"
+
     @property
     def live(self) -> bool:
         return self.created or self.existing
@@ -121,16 +127,14 @@ class Manifest(ABC, Generic[T]):
     def create(self) -> Self:
         api = CoreV1Api(self.client)
         self.ensure_namespace(api)
-        print(
-            f"creating {self.manifest.kind or type(self.manifest).__name__} {self.namespace}/{self.name}..."
-        )
+        print(f"creating {self}...")
         self._manifest = self._create()
         self.created = True
         return self
 
     def destroy(self):
         if self.created:
-            print(f"deleting {self.manifest.kind} {self.namespace}/{self.name}...")
+            print(f"deleting {self}...")
             self._delete()
             self.created = False
         if self.created_namespace:
@@ -192,7 +196,10 @@ class Manifest(ABC, Generic[T]):
 
     @abstractmethod
     def _new_manifest(self) -> T:
-        """Create object instance. This is a in-memory object only."""
+        """Create object instance.
+
+        This is a in-memory object only.
+        """
 
     @abstractmethod
     def _get_manifest(self) -> T:

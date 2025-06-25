@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Andreas Stenius
+# This software is licensed under the MIT License.
+# See the LICENSE file for details.
 from enum import Enum
 
 from kubernetes.client import ApiClient, CoreV1Api, V1Pod, V1Service, V1ServicePort, V1ServiceSpec
