@@ -34,6 +34,9 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/kaos/podsmith"
 
+[project.entry-points."pytest11"]
+podsmith = "podsmith.pytest_plugin"
+
 [build-system]
 requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"

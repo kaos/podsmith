@@ -2,18 +2,22 @@
 
 **Podsmith** is a Python toolkit for managing Kubernetes-based test dependencies, enabling dynamic or pre-provisioned environments for integration testing.
 
-Inspired by [Testcontainers](https://www.testcontainers.org/), Podsmith lets you define service dependencies as code and run your tests locally or remotely, with full control over whether resources are deployed on-the-fly or expected to be pre-provisioned.
+Inspired by (and supports using) [Testcontainers](https://www.testcontainers.org/), Podsmith lets you define service dependencies as code and run your tests locally or remotely, with full control over whether resources are deployed on-the-fly or expected to be pre-provisioned.
 
 ---
 
-## ✨ (Planned) Features
+## ✨ Features
 
 - 🛠  Deploy Kubernetes resources from Python definitions
 - 🔍 Optionally reuse existing resources
 - ⏳ Built-in support for readiness checks (e.g., pod status, HTTP, service endpoints)
-- 📦 Snapshot current test environment for reusable kubernetes manifests
 - 🧪 Integrates with `pytest`
-- 🚀 Works with local clusters (e.g., `k3s`, `kind`) or remote CI (e.g., [Testkube](https://testkube.io))
+- 🚀 Works with local clusters (e.g., `k3s`, `kind`) or remote (using `kubectl`)
+
+## ✨ Planned Features
+
+- 📦 Snapshot current test environment for reusable kubernetes manifests
+- 🐳 Pre-build test images locally for publishing to pre-populate a docker registry.
 
 ---
 
@@ -27,25 +31,26 @@ pip install podsmith
 
 ## 🚀 Quickstart
 
-### WIP -- AI generated example, not accurate.
+Simple example to deploy a redis testcontainer as a Kubernetes Pod.
 
 ```python
-from podsmith import KubeResource
+from podsmith import Pod
+from testcontainers.redis import RedisContainer
 
-with KubeResource("redis", manifest="manifests/redis.yaml", mode="deploy") as redis:
-    redis.wait_until_ready()
-    url = redis.service_url(port=6379)
-    # Use redis service in your test
+redis_container = RedisContainer()
+
+with Pod("redis").with_testcontainer(redis_container, service_port_map={redis_container.port: "redis"}) as redis:
+    # Port-forward from k8s cluster to localhost, only needed if test needs to connect to the service directly.
+    with redis.port_forward("redis") as port:
+        url = f"redis://127.0.0.1:{port}"
+        # Use redis service in your test
 ```
 
-Set the mode via environment variable:
-```bash
-export PODSMITH_MODE=deploy  # or "reuse"
-```
+This example deploys a `redis` pod using a testcontainer as template, and register a Service manifest for the `redis` service port. When the context manager exits, the pod is deleted.
 
 ---
 
-## 📸 Snapshot Test Manifests
+## 📸 (Planned) Snapshot Test Manifests
 
 ### WIP -- AI generated example, not accurate.
 
@@ -62,7 +67,7 @@ kubectl apply -f ./snapshots/
 
 ---
 
-## 📚 Documentation
+## 📚 (Wishful thinking) Documentation
 
 - [Getting Started](docs/getting-started.md)
 - [API Reference](docs/api.md)

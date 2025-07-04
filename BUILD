@@ -4,11 +4,6 @@ python_distribution(
     dependencies=[":dist-files", "src/podsmith"],
     sdist=False,
     repositories=["@pypi"],
-    entry_points={
-        "pytest11": {
-            "podsmith": "podsmith.pytest_plugin",
-        }
-    },
 )
 
 resources(
