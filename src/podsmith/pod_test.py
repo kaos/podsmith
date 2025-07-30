@@ -10,7 +10,7 @@ from .pod import Pod
 
 def test_kube_pod(podsmith_cluster):
     mongo = V1Pod(
-        metadata=V1ObjectMeta(namespace="test", name="mongo"),
+        metadata=V1ObjectMeta(namespace="test1", name="mongo"),
         spec=V1PodSpec(
             containers=[
                 V1Container(
@@ -26,5 +26,5 @@ def test_kube_pod(podsmith_cluster):
 
 def test_kube_pod_from_testcontainer(podsmith_cluster):
     mongo = MongoDbContainer("mongo:7.0.12")
-    with Pod("mongo2", namespace="test").with_testcontainer(mongo) as pod:
+    with Pod("mongo", namespace="test2").with_testcontainer(mongo) as pod:
         assert pod.manifest.status.phase == "Running"
