@@ -45,3 +45,5 @@ class KindImageLoader:
             )
         except docker.errors.ImageNotFound:
             pass
+        else:
+            print(f"image ready on {self.cluster}: {image=}")

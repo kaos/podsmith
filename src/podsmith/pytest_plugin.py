@@ -57,7 +57,10 @@ if kubeconfig := os.getenv("KUBECONFIG"):
 
     @pytest.fixture(scope="session")
     def podsmith_cluster():
-        """Use current cluster context as configured in kube config."""
+        """Use current cluster context as configured in kube config.
+
+        The `podsmith_cluster` fixture relies on the KUBECONFIG env var, unset this to use a temporary cluster using `kind` instead.
+        """
         config.load_kube_config(config_file=kubeconfig)
         yield make_cluster_info(ephemeral=False)
 
@@ -65,12 +68,19 @@ else:
 
     @pytest.fixture(scope="session")
     def podsmith_cluster(kind_cluster):
-        """Use temporary cluster managed by kind."""
+        """Use temporary cluster managed by `kind`.
+
+        Provide the KUBECONFIG env var with kubectl configuration for an existing cluster to use that instead.
+        """
         return kind_cluster
 
 
 @pytest.fixture(scope="session")
 def kind_cluster(tmp_path_factory):
+    """Creates a temporary Kubernetes cluster using `kind`.
+
+    Sets KUBECONFIG for the current test process, so any subprocesses spawned will use this temporary cluster by default as well.
+    """
     cluster_name = "podsmith-dev"
     tmp_dir = tmp_path_factory.mktemp("kube")
     kubeconfig_file = tmp_dir / "kubeconfig.yaml"
@@ -104,11 +114,13 @@ def kind_cluster(tmp_path_factory):
 
 @pytest.fixture
 def podsmith_namespace():
+    """Default namespace to use for podsmith based resources."""
     return get_default_namespace("podsmith-test")
 
 
 @pytest.fixture
-def podsmith_session_scope(request, podsmith_sessions):
+def _podsmith_session_scope(request, podsmith_sessions):
+    """Determine the scope to use for podsmith resources, using the `podsmith_scope` marker."""
     scope = getattr(request.module, "podsmith_scope", "function")
     if (marker := request.node.get_closest_marker("podsmith_scope")) is not None:
         scope = marker.args[0]
@@ -124,18 +136,20 @@ def podsmith_session_scope(request, podsmith_sessions):
 
 
 @pytest.fixture
-def podsmith_session(podsmith_session_scope, podsmith_sessions):
-    return podsmith_sessions[podsmith_session_scope]
+def podsmith_session(_podsmith_session_scope, _podsmith_sessions):
+    """Get the podsmith session object, according to the current scope to use."""
+    return _podsmith_sessions[_podsmith_session_scope]
 
 
 @pytest.fixture
-def podsmith_sessions(
+def _podsmith_sessions(
     podsmith_global_session,
     podsmith_pkg_session,
     podsmith_mod_session,
     podsmith_cls_session,
     podsmith_fun_session,
 ):
+    """Map all podsmith sessions to their corresponding scope."""
     return {
         "function": podsmith_fun_session,
         "class": podsmith_cls_session,
@@ -148,6 +162,7 @@ def podsmith_sessions(
 def _podsmith_session_fixture_factory(name, scope):
     @pytest.fixture(name=name, scope=scope)
     def _podsmith_session_fixture():
+        """A podsmith session object."""
         with Session() as session:
             yield session
 
