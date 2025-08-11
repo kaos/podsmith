@@ -119,7 +119,7 @@ def podsmith_namespace():
 
 
 @pytest.fixture
-def _podsmith_session_scope(request, podsmith_sessions):
+def _podsmith_session_scope(request, _podsmith_sessions):
     """Determine the scope to use for podsmith resources, using the `podsmith_scope` marker."""
     scope = getattr(request.module, "podsmith_scope", "function")
     if (marker := request.node.get_closest_marker("podsmith_scope")) is not None:
@@ -128,9 +128,9 @@ def _podsmith_session_scope(request, podsmith_sessions):
         raise Exception(
             'missing `podsmith_scope` marker or module level variable. hint: add something like `@pytest.mark.podsmith_scope("module")` to your test.'
         )
-    if scope not in podsmith_sessions:
+    if scope not in _podsmith_sessions:
         raise ValueError(
-            f"Invalid podsmith_scope: {scope!r}. Must be one of: {', '.join(podsmith_sessions)}"
+            f"Invalid podsmith_scope: {scope!r}. Must be one of: {', '.join(_podsmith_sessions)}"
         )
     return scope
 
