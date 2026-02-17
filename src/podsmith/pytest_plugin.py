@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
+import logging
 
 import pytest
 from kubernetes import client, config
@@ -14,6 +15,8 @@ from urllib3.exceptions import MaxRetryError
 from .image import ImageLoader
 from .manifest import get_default_namespace
 from .session import Session
+
+logger = logging.getLogger(__name__)
 
 
 def pytest_configure(config):
@@ -31,6 +34,20 @@ class ClusterInfo:
     ephemeral: bool
     image_loader: ImageLoader | None
 
+    def __post_init__(self):
+        try:
+            res = subprocess.run(
+                ["kubectl", "cluster-info", "--context", self.context],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception as e:
+            logger.error(f"[podsmith] failed to connect to kubernetes cluster {self.context!r}, error: {e}\n{self}")
+            raise
+        else:
+            logger.debug(f"[podsmith] cluster-info:\n{res.stdout}")
+
 
 def get_current_cluster_info():
     tpl = '{{index . "current-context"}}|{{index . "contexts" 0 "context" "cluster" }}'
@@ -46,11 +63,13 @@ def get_current_cluster_info():
 
 def make_cluster_info(**info):
     info.update(get_current_cluster_info())
-    return ClusterInfo(
+    cluster_info = ClusterInfo(
         kubeconfig=os.getenv("KUBECONFIG"),
         image_loader=ImageLoader.create(info["cluster"]),
         **info,
     )
+    logger.debug(f"[podsmith] {cluster_info=}")
+    return cluster_info
 
 
 if kubeconfig := os.getenv("KUBECONFIG"):
@@ -61,6 +80,7 @@ if kubeconfig := os.getenv("KUBECONFIG"):
 
         The `podsmith_cluster` fixture relies on the KUBECONFIG env var, unset this to use a temporary cluster using `kind` instead.
         """
+        logger.info(f"[podsmith] using existing k8s cluster, using config: {kubeconfig}")
         config.load_kube_config(config_file=kubeconfig)
         yield make_cluster_info(ephemeral=False)
 
@@ -72,6 +92,7 @@ else:
 
         Provide the KUBECONFIG env var with kubectl configuration for an existing cluster to use that instead.
         """
+        logger.info("[podsmith] using a temporary k8s cluster, managed by `kind`")
         return kind_cluster
 
 
@@ -86,6 +107,7 @@ def kind_cluster(tmp_path_factory):
     kubeconfig_file = tmp_dir / "kubeconfig.yaml"
 
     # Create the kind cluster
+    logger.info("[podsmith] creating ephemeral k8s cluster...")
     subprocess.run(
         ["kind", "create", "cluster", "--name", cluster_name, "--kubeconfig", str(kubeconfig_file)],
         check=True,
@@ -109,6 +131,7 @@ def kind_cluster(tmp_path_factory):
     yield make_cluster_info(ephemeral=True)
 
     # Teardown
+    logger.info("[podsmith] deleting ephemeral k8s cluster...")
     subprocess.run(["kind", "delete", "cluster", "--name", cluster_name], check=True)
 
 

@@ -317,9 +317,12 @@ class Pod(Manifest[V1Pod]):
             tail_lines=tail_lines,
         ).strip()
 
-    def missing_logs(self, opts):
-        pattern = opts["args"][0]
-        print(f"{self}: missing log pattern {pattern.pattern!r}")
+    def missing_logs(self, container: str | None = None):
+        def dump_logs(opts):
+            pattern = opts["args"][0]
+            print(f"{self}: missing log pattern {pattern.pattern!r}\nLOGS:\n{self.get_logs(container)}\n\n")
+
+        return dump_logs
 
     def await_logs(
         self,
@@ -331,14 +334,16 @@ class Pod(Manifest[V1Pod]):
     ):
         @backoff.on_predicate(
             backoff.fibo,
-            on_giveup=self.missing_logs,
+            on_giveup=self.missing_logs(container),
             max_time=max_time,
             max_value=max_value,
             **backoff_opts,
         )
         def check_logs(pattern):
             print(f"{self}: awaiting log pattern {pattern.pattern!r}")
-            return pattern.search(self.get_logs(container), re.MULTILINE)
+            logs = self.get_logs(container)
+            print(f"{self}: LOGS:\n{logs}\n\n")
+            return pattern.search(logs, re.MULTILINE)
 
         return check_logs(re.compile(log_pattern))
 
